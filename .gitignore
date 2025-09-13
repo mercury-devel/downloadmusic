@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Secrets and config
+.env
+*.session
+*.session-journal
+accs/*.session
+accs/*.session-journal
+
+# Runtime/state
+downloads/**
+!downloads/.gitkeep
+downloads/logs/**
+*.log
+*.part
+*.tmp
+.downloaded_ids.txt
+.queue_ids.txt
+
+# Project state files in custom locations
+**/.downloaded_ids.txt
+**/.queue_ids.txt
+**/downloads/logs/*
