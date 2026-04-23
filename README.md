@@ -81,8 +81,28 @@ py .\download.py
 
 - `.gitignore` excludes `.env`, `accs/*.session`, logs, and downloads to avoid leaking secrets or pushing large files.
 - The downloader writes temporary `.part` files and renames atomically when complete.
-- On FloodWait or RPC errors, it rotates sessions or waits the minimal cooldown and resumes.
+- On FloodWait or RPC errors, it rotates sessions or applies a session cooldown and resumes.
 - Use `LIMIT` during `--scan` to bound initial queueing if desired.
+
+## FloodWait and ExportAuthorization
+
+- Telegram may return `420 FLOOD_WAIT_X` caused by `auth.ExportAuthorization` when too many cross-DC media requests are made.
+- This is a Telegram-side rate limit and cannot be fully disabled by client code.
+- The downloader now avoids hammering the same account: when this condition appears (including in `--scan`), the current session is put on cooldown and retried later.
+- With multiple sessions in `accs/`, it rotates to another session; with a single session, it waits the cooldown before retrying.
+
+Recommended `.env` values for fewer ExportAuthorization FloodWait events:
+
+```env
+DOWNLOAD_DELAY=3.0
+FLOODWAIT_SWITCH_SECS=180
+```
+
+Explanation:
+
+- `DOWNLOAD_DELAY=3.0` adds a 3-second pause between files, reducing request burst rate.
+- `FLOODWAIT_SWITCH_SECS=180` treats long waits as a cooldown trigger earlier, so the same session is not hammered continuously.
+- Also avoid running multiple downloader instances at once.
 
 # 🚀 Usage
 

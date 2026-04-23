@@ -424,21 +424,58 @@ async def async_main(args, chosen_session: str, workdir: str | None = None, alt_
 
             enqueued = 0
             already = 0
-            async for message in app.get_chat_history(CHAT_ID, limit=limit):
-                if has_media(message):
-                    mid = message.id
-                    if mid in downloaded_ids:
-                        already += 1
-                        continue
-                    if mid in existing_queue:
-                        continue
+            offset_id = 0
+            remaining = limit
+            while True:
+                batch_limit = 100 if remaining is None else min(100, remaining)
+                if batch_limit <= 0:
+                    break
+                try:
+                    batch = [m async for m in app.get_chat_history(CHAT_ID, limit=batch_limit, offset_id=offset_id)]
+                except FloodWait as e:
+                    wait_val = int(getattr(e, "value", FLOODWAIT_SWITCH_SECS) or FLOODWAIT_SWITCH_SECS)
+                    err_text = str(e)
+                    if "auth.ExportAuthorization" in err_text or wait_val >= FLOODWAIT_SWITCH_SECS:
+                        return ("SWITCH", wait_val)
+                    wait_s = max(5, min(wait_val, 1800))
+                    console_error(f"FloodWait during scan: sleep {wait_s}s")
                     try:
-                        with open(QUEUE_FILE, "a", encoding="utf-8") as qf:
-                            qf.write(f"{mid}\n")
-                        existing_queue.add(mid)
-                        enqueued += 1
+                        LOGGER.info(f"FloodWait during scan in session {chosen_session}: {wait_s}s")
                     except Exception:
                         pass
+                    await asyncio.sleep(wait_s)
+                    continue
+                except RPCError as e:
+                    if alt_sessions:
+                        return ("SWITCH", FLOODWAIT_SWITCH_SECS)
+                    try:
+                        LOGGER.exception(f"RPCError during scan in session {chosen_session}: {e}")
+                    except Exception:
+                        pass
+                    raise
+
+                if not batch:
+                    break
+
+                for message in batch:
+                    if has_media(message):
+                        mid = message.id
+                        if mid in downloaded_ids:
+                            already += 1
+                            continue
+                        if mid in existing_queue:
+                            continue
+                        try:
+                            with open(QUEUE_FILE, "a", encoding="utf-8") as qf:
+                                qf.write(f"{mid}\n")
+                            existing_queue.add(mid)
+                            enqueued += 1
+                        except Exception:
+                            pass
+
+                offset_id = batch[-1].id
+                if remaining is not None:
+                    remaining -= len(batch)
             print(f"Scan complete. Enqueued: {enqueued}. Already downloaded: {already}. Queue: {QUEUE_FILE}")
             return None
 
@@ -511,7 +548,9 @@ async def async_main(args, chosen_session: str, workdir: str | None = None, alt_
             except FloodWait as e:
                 # Rotate session on FloodWait if multiple sessions; otherwise wait and continue
                 wait_val = getattr(e, 'value', FLOODWAIT_SWITCH_SECS)
-                if alt_sessions:
+                wait_int = int(wait_val) if isinstance(wait_val, (int, float)) else FLOODWAIT_SWITCH_SECS
+                err_text = str(e)
+                if alt_sessions or "auth.ExportAuthorization" in err_text or wait_int >= FLOODWAIT_SWITCH_SECS:
                     return ("SWITCH", wait_val)
                 else:
                     try:
@@ -590,9 +629,9 @@ async def async_main(args, chosen_session: str, workdir: str | None = None, alt_
                         LOGGER.info(msg_txt)
                     except Exception:
                         pass
-                    # If ExportAuthorization is the cause or wait is long and we have alt sessions, rotate
+                    # For ExportAuthorization/long waits, cooldown this session to avoid hammering Telegram.
                     err_text = str(e) if e else ""
-                    if alt_sessions and ("auth.ExportAuthorization" in err_text or wait_s >= FLOODWAIT_SWITCH_SECS):
+                    if "auth.ExportAuthorization" in err_text or wait_s >= FLOODWAIT_SWITCH_SECS:
                         return ("SWITCH", wait_s)
                     await asyncio.sleep(wait_s)
                     continue
