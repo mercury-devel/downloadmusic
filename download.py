@@ -353,7 +353,20 @@ async def async_main(args, chosen_session: str, workdir: str | None = None, alt_
     state_lock = asyncio.Lock()
 
     # Establish connection with retries and timeout
-    app = Client(chosen_session, api_id=API_ID, api_hash=API_HASH, workdir=workdir)
+    client_kwargs = {
+        "api_id": API_ID,
+        "api_hash": API_HASH,
+    }
+    if workdir:
+        client_kwargs["workdir"] = workdir
+
+    # If a session file is missing, Pyrogram will ask for interactive login.
+    session_dir = workdir or os.getcwd()
+    session_file = os.path.join(session_dir, f"{chosen_session}.session")
+    if not os.path.exists(session_file):
+        print(f"Session '{chosen_session}' not found. Starting interactive authorization...")
+
+    app = Client(chosen_session, **client_kwargs)
     started = False
     conn_attempts = CONNECT_RETRIES
     while True:
